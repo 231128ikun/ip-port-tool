@@ -24,7 +24,7 @@
 ### 方式二：运行源代码
 ```bash
 # 克隆项目
-git clone https://github.com/你的用户名/ip-port-tool.git
+git clone https://github.com/231128ikun/ip-port-tool.git
 
 # 安装依赖
 python -m pip install pandas
@@ -75,3 +75,4 @@ python ip_tool.py
 ## 📄 许可证
 
 本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情
+
