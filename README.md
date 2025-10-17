@@ -2,6 +2,8 @@
 
 一个强大的CSV文件处理工具，支持IP和端口数据的提取、格式化和导出。
 
+全文件由AI指导下完成。本项目并不成熟，含金量并不高，用途也很局限，仅作为学习使用github的一次小尝试。
+
 ![Python](https://img.shields.io/badge/Python-3.7+-blue.svg)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 
@@ -12,6 +14,8 @@
 - ⚡ **高性能**: 采用pandas引擎，处理百万行数据无压力
 - 🛡️ **安全可靠**: 纯本地处理，数据不上传
 - 📈 **进度显示**: 实时显示处理进度和结果统计
+
+主要用于配合iptest等测速项目使用，或者方便cm的订阅器的维护，借助ai来完成的一个小工具。
 
 ## 📦 下载使用
 
@@ -86,5 +90,6 @@ python ip_tool.py -f input.csv --format "[1]:[2]#[3]"
 ## 📄 许可证
 
 本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情
+
 
 
