@@ -15,7 +15,7 @@
 - 🛡️ **安全可靠**: 纯本地处理，数据不上传
 - 📈 **进度显示**: 实时显示处理进度和结果统计
 
-主要用于配合iptest等测速项目使用，或者方便cm的订阅器的维护，借助ai来完成的一个小工具。
+此项目主要用于配合iptest或[类似测速项目](https://github.com/jackrun123/cfiptest)使用，或者可以方便[cm的订阅器](https://github.com/cmliu/WorkerVless2sub)的维护，是借助ai来完成的一个小工具。
 
 ## 📦 下载使用
 
@@ -90,6 +90,7 @@ python ip_tool.py -f input.csv --format "[1]:[2]#[3]"
 ## 📄 许可证
 
 本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情
+
 
 
 
