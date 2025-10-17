@@ -48,7 +48,7 @@ python ip_tool.py
 3. 按提示选择列和输出格式
 
 ### 命令行用法（适合自动化）
-
+```bash
 # 快速处理单个文件
 python ip_tool.py -f input.csv
 
@@ -57,7 +57,7 @@ python ip_tool.py -d ./data
 
 # 指定输出格式
 python ip_tool.py -f input.csv --format "[1]:[2]#[3]"
-
+```
 
 ## 📝 输出格式示例
 
@@ -90,6 +90,7 @@ python ip_tool.py -f input.csv --format "[1]:[2]#[3]"
 ## 📄 许可证
 
 本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情
+
 
 
 
