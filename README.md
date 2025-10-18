@@ -1,6 +1,6 @@
-# IP-PORT-TOOL v2.0
+# IP-PORT-TOOL v2.1
 
-一个的 CSV/TXT 文件处理工具，专注于 IP 和端口数据的提取、格式化、去重和导出。
+一个的 CSV/TXT/xlsx 文件处理工具，专注于 IP 和端口数据的提取、格式化、去重和导出。
 
 ![Python](https://img.shields.io/badge/Python-3.7+-blue.svg)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
@@ -254,7 +254,7 @@ python -m PyInstaller --onefile --console --name "IP-PORT-tool" "ip-port-tool.py
 **A**: 程序会自动清理 `http://` 和 `https://` 前缀，只保留 IP 或域名部分。
 
 ### Q3: 默认端口是多少？
-**A**: 快速模式默认端口为 443，可在非拖拽模式下自定义。
+**A**: 快速模式默认端口为空，可在非拖拽模式下自定义。
 
 ### Q4: 支持 IPv6 吗？
 **A**: 当前版本主要针对 IPv4，IPv6 支持将在后续版本添加。
@@ -290,5 +290,6 @@ ip-port-tool/
 ---
 
 ⭐ 如果这个项目对你有帮助，欢迎 Star 支持！
+
 
 
