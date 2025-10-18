@@ -2,6 +2,8 @@ import pandas as pd
 import sys
 import os
 import re
+import urllib.parse
+import argparse
 from pathlib import Path
 
 # 设置工作目录为EXE文件所在目录
@@ -33,7 +35,7 @@ def detect_column_content_type(column_data):
     ip_only_count = 0
     mixed_count = 0
     
-    for value in column_data[:10]:  # 检查前10个样本
+    for value in column_data[:10]:
         str_value = str(value).strip()
         if re.match(r'^\d+\.\d+\.\d+\.\d+:\d+$', str_value):
             ip_port_count += 1
@@ -70,15 +72,84 @@ def extract_ip_port_from_mixed(text):
     
     return None
 
+def is_special_format_file(file_path):
+    """检测文件是否为特殊格式文件（包含vless、trojan等协议）"""
+    try:
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            first_lines = [f.readline().strip() for _ in range(5)]
+        
+        for line in first_lines:
+            if line and any(proto in line.lower() for proto in ['vless://', 'trojan://', 'ss://', 'vmess://']):
+                return True
+        return False
+    except:
+        return False
+
+def parse_special_format(line):
+    """解析特殊格式链接，返回 IP:端口#备注 格式"""
+    line = line.strip()
+    
+    # 匹配各种特殊协议
+    patterns = [
+        r'^(vless|trojan|vmess)://[^@]+@([^:]+):(\d+)[^#]*(#.*)?',  # vless/trojan/vmess
+        r'^ss://[^#]+#(.+)$',  # ss
+    ]
+    
+    for pattern in patterns:
+        match = re.match(pattern, line)
+        if match:
+            if match.group(1) in ['vless', 'trojan', 'vmess']:
+                domain = match.group(2)
+                port = match.group(3)
+                remark = match.group(4) or ""
+                
+                # URL解码
+                try:
+                    domain = urllib.parse.unquote(domain)
+                    if remark:
+                        remark = urllib.parse.unquote(remark)
+                except:
+                    pass
+                
+                return f"{domain}:{port}{remark}"
+    
+    return None
+
+def extract_special_format(file_path):
+    """从特殊格式文件中提取信息"""
+    print("🔍 正在提取文件信息...")
+    
+    results = []
+    seen = set()
+    
+    try:
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            lines = f.readlines()
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+                
+            special_info = parse_special_format(line)
+            if special_info and special_info not in seen:
+                seen.add(special_info)
+                results.append(special_info)
+        
+        results.sort()
+        return results
+        
+    except Exception as e:
+        print(f"❌ 处理文件失败: {e}")
+        return []
+
 def process_excel_file(file_path, selected_sheets=None):
     """处理Excel文件 - 支持多工作表选择"""
     try:
-        # 读取Excel文件
         excel_file = pd.ExcelFile(file_path)
         sheet_names = excel_file.sheet_names
         
         if selected_sheets:
-            # 使用预选的工作表
             dfs = {}
             for sheet_name in selected_sheets:
                 if sheet_name in sheet_names:
@@ -89,7 +160,6 @@ def process_excel_file(file_path, selected_sheets=None):
                     print(f"⚠️  工作表 '{sheet_name}' 不存在，已跳过")
             return dfs
         else:
-            # 让用户选择工作表
             print(f"✅ 检测到Excel文件，包含以下工作表: {sheet_names}")
             print("\n📊 请选择要处理的工作表(输入数字，多选用空格分隔，如: 1 2 3):")
             for i, sheet in enumerate(sheet_names, 1):
@@ -113,27 +183,24 @@ def process_excel_file(file_path, selected_sheets=None):
         
     except Exception as e:
         print(f"❌ Excel文件读取失败: {e}")
-        print("💡 请确保已安装openpyxl库: pip install openpyxl")
         return None
 
 def smart_parse_text(file_path):
     """智能解析文本文件为表格格式"""
     print("🔍 正在分析文本文件结构...")
     
-    # 常见分隔符优先级 - 逗号优先（CSV格式）
     separators = [',', '#', '|', ':', '-', '\t', ' ']
     
     lines = []
     with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
         for line in f:
             line = line.strip()
-            if line and not line.startswith('-----'):  # 跳过分组标题行
+            if line and not line.startswith('-----'):
                 lines.append(line)
     
     if not lines:
         return None
     
-    # 分析最佳分隔符
     separator_scores = {}
     for sep in separators:
         score = 0
@@ -143,7 +210,6 @@ def smart_parse_text(file_path):
         for line in lines:
             if sep in line:
                 parts = line.split(sep)
-                # 过滤空部分
                 parts = [p.strip() for p in parts if p.strip()]
                 
                 if column_count is None:
@@ -157,7 +223,6 @@ def smart_parse_text(file_path):
         if consistent_columns and column_count and column_count > 1:
             separator_scores[sep] = score * column_count
     
-    # 选择最佳分隔符
     best_separator = max(separator_scores, key=separator_scores.get) if separator_scores else None
     
     if not best_separator:
@@ -166,7 +231,6 @@ def smart_parse_text(file_path):
     
     print(f"✅ 识别到分隔符: '{best_separator}'")
     
-    # 解析数据
     data = []
     max_columns = 0
     
@@ -176,12 +240,10 @@ def smart_parse_text(file_path):
             data.append(parts)
             max_columns = max(max_columns, len(parts))
     
-    # 统一列数（填充空值）
     for row in data:
         while len(row) < max_columns:
             row.append("")
     
-    # 生成列名
     columns = []
     for i in range(max_columns):
         sample_values = [row[i] for row in data if i < len(row) and row[i]]
@@ -206,36 +268,49 @@ def smart_parse_text(file_path):
 def process_csv_file(file_path):
     """处理CSV文件"""
     try:
-        df = pd.read_csv(file_path)
-        print(f"✅ 成功读取CSV文件，共 {len(df)} 行")
+        # 尝试多种编码方式
+        encodings = ['utf-8', 'gbk', 'utf-8-sig', 'latin-1']
+        df = None
+        
+        for encoding in encodings:
+            try:
+                df = pd.read_csv(file_path, encoding=encoding)
+                print(f"✅ 成功读取CSV文件({encoding})，共 {len(df)} 行")
+                break
+            except:
+                continue
+        
+        if df is None:
+            # 如果标准方法都失败，尝试手动解析
+            try:
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    lines = f.readlines()
+                
+                data = []
+                headers = None
+                for line in lines:
+                    if '|' in line:
+                        parts = [part.strip() for part in line.split('|') if part.strip()]
+                        if not headers and len(parts) > 1:
+                            headers = parts
+                        elif headers and len(parts) == len(headers):
+                            data.append(parts)
+                
+                if headers and data:
+                    df = pd.DataFrame(data, columns=headers)
+                    print(f"✅ 成功解析表格格式，共 {len(df)} 行")
+                    return df
+            except Exception as e:
+                print(f"❌ 文件读取失败: {e}")
+        
         return df
-    except:
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
-            
-            data = []
-            headers = None
-            for line in lines:
-                if '|' in line:
-                    parts = [part.strip() for part in line.split('|') if part.strip()]
-                    if not headers and len(parts) > 1:
-                        headers = parts
-                    elif headers and len(parts) == len(headers):
-                        data.append(parts)
-            
-            if headers and data:
-                df = pd.DataFrame(data, columns=headers)
-                print(f"✅ 成功解析表格格式，共 {len(df)} 行")
-                return df
-        except Exception as e:
-            print(f"❌ 文件读取失败: {e}")
-    
-    return None
+    except Exception as e:
+        print(f"❌ CSV文件读取失败: {e}")
+        return None
 
-def extract_from_text_advanced(file_path, extract_mode="ip_port", default_port=""):
+def extract_from_text_advanced(file_path, extract_mode="ip_space_port", default_port=""):
     """从文本文件中提取IP和端口（增强版，支持多种格式）"""
-    print(f"📝 正在从文本文件提取数据（增强模式）...")
+    print(f"📝 正在从文本文件提取数据...")
     
     results = []
     seen = set()
@@ -255,28 +330,34 @@ def extract_from_text_advanced(file_path, extract_mode="ip_port", default_port="
             extracted = extract_ip_port_from_mixed(line)
             
             if extracted:
-                if extract_mode == "ip_only" and ':' in extracted:
-                    # 只提取IP，去掉端口
-                    extracted = extracted.split(':')[0]
-                elif extract_mode == "ip_port" and ':' not in extracted and default_port:
-                    # 需要端口但没有端口，且设置了默认端口
-                    extracted = f"{extracted}:{default_port}"
-                
-                if extracted not in seen:
-                    seen.add(extracted)
-                    results.append(extracted)
-            elif extract_mode == "ip_port":
-                # 如果没有提取到IP:端口，但需要端口，尝试只提取IP并添加默认端口
-                ip_match = re.search(r'(\d+\.\d+\.\d+\.\d+)', line)
-                if ip_match:
-                    if default_port:
-                        ip_with_port = f"{ip_match.group(1)}:{default_port}"
+                # 如果只有IP没有端口
+                if ':' not in extracted:
+                    # 仅IP模式直接使用IP
+                    if extract_mode == "ip_only":
+                        result_item = extracted
+                    # 其他模式需要端口
+                    elif default_port:
+                        if extract_mode == "ip_space_port":
+                            result_item = f"{extracted} {default_port}"
+                        else:
+                            result_item = f"{extracted}:{default_port}"
                     else:
-                        ip_with_port = ip_match.group(1)
-                    if ip_with_port not in seen:
-                        seen.add(ip_with_port)
-                        results.append(ip_with_port)
-        
+                        # 没有默认端口且需要端口，跳过
+                        continue
+                else:
+                    # 有IP和端口
+                    if extract_mode == "ip_space_port":
+                        ip, port = extracted.split(':')
+                        result_item = f"{ip} {port}"
+                    elif extract_mode == "ip_only":
+                        result_item = extracted.split(':')[0]
+                    else:
+                        result_item = extracted
+                
+                if result_item and result_item not in seen:
+                    seen.add(result_item)
+                    results.append(result_item)
+            
         results.sort()
         return results
         
@@ -284,7 +365,7 @@ def extract_from_text_advanced(file_path, extract_mode="ip_port", default_port="
         print(f"❌ 处理文本文件失败: {e}")
         return []
 
-def process_dataframe_for_quick_mode(df, extract_mode="ip_port", default_port=""):
+def process_dataframe_for_quick_mode(df, extract_mode="ip_space_port", default_port=""):
     """处理DataFrame数据用于快速模式"""
     ip_col = None
     port_col = None
@@ -330,39 +411,64 @@ def process_dataframe_for_quick_mode(df, extract_mode="ip_port", default_port=""
                 
             # 处理IP列
             if ip_col_type == 'ip_port':
-                # 已经是IP:端口格式，直接使用
-                result_item = ip_value
+                # 已经是IP:端口格式
+                if extract_mode == "ip_space_port":
+                    ip, port = ip_value.split(':')
+                    result_item = f"{ip} {port}"
+                elif extract_mode == "ip_only":
+                    result_item = ip_value.split(':')[0]
+                else:
+                    result_item = ip_value
             elif ip_col_type == 'mixed':
                 # 混合内容，尝试提取IP和端口
                 extracted = extract_ip_port_from_mixed(ip_value)
                 if extracted:
-                    if extract_mode == "ip_only" and ':' in extracted:
-                        result_item = extracted.split(':')[0]
-                    elif extract_mode == "ip_port" and ':' not in extracted and default_port:
-                        result_item = f"{extracted}:{default_port}"
+                    if ':' not in extracted:
+                        if extract_mode == "ip_only":
+                            result_item = extracted
+                        elif default_port:
+                            if extract_mode == "ip_space_port":
+                                result_item = f"{extracted} {default_port}"
+                            else:
+                                result_item = f"{extracted}:{default_port}"
+                        else:
+                            continue  # 没有端口且没有默认端口，跳过
                     else:
-                        result_item = extracted
+                        if extract_mode == "ip_space_port":
+                            ip, port = extracted.split(':')
+                            result_item = f"{ip} {port}"
+                        elif extract_mode == "ip_only":
+                            result_item = extracted.split(':')[0]
+                        else:
+                            result_item = extracted
                 else:
-                    continue  # 无法提取，跳过此行
+                    continue
             elif ip_col_type == 'ip_only':
                 # 纯IP
-                if extract_mode == "ip_port":
-                    if port_col:
-                        port_value = str(row[port_col]).strip()
-                        if port_value and port_value.isdigit():
-                            result_item = f"{ip_value}:{port_value}"
-                        elif default_port:
-                            result_item = f"{ip_value}:{default_port}"
-                        else:
-                            result_item = ip_value
-                    elif default_port:
-                        result_item = f"{ip_value}:{default_port}"
-                    else:
-                        result_item = ip_value
-                else:
+                if extract_mode == "ip_only":
                     result_item = ip_value
+                elif port_col:
+                    port_value = str(row[port_col]).strip()
+                    if port_value and port_value.isdigit():
+                        if extract_mode == "ip_space_port":
+                            result_item = f"{ip_value} {port_value}"
+                        else:
+                            result_item = f"{ip_value}:{port_value}"
+                    elif default_port:
+                        if extract_mode == "ip_space_port":
+                            result_item = f"{ip_value} {default_port}"
+                        else:
+                            result_item = f"{ip_value}:{default_port}"
+                    else:
+                        continue  # 没有端口且没有默认端口，跳过
+                elif default_port:
+                    if extract_mode == "ip_space_port":
+                        result_item = f"{ip_value} {default_port}"
+                    else:
+                        result_item = f"{ip_value}:{default_port}"
+                else:
+                    continue  # 没有端口且没有默认端口，跳过
             else:
-                # 其他类型，直接使用
                 result_item = ip_value
                 
             if result_item and result_item not in seen:
@@ -375,59 +481,113 @@ def process_dataframe_for_quick_mode(df, extract_mode="ip_port", default_port=""
     results.sort()
     return results
 
-def quick_mode(file_path, extract_mode="ip_port", is_drag_drop=False):
-    """快速模式：直接输出ip:port格式"""
+def quick_mode(file_path, extract_mode="ip_space_port", is_drag_drop=False):
+    """快速模式：支持多种输出格式"""
     print("=== 快速模式 ===")
     
-    file_ext = os.path.splitext(file_path)[1].lower()
-    output_filename = "results"
-    
-    # 设置默认端口 - 默认为空（不添加端口）
-    default_port = ""
-    if not is_drag_drop and extract_mode == "ip_port":
-        port_choice = input("🔧 是否为纯IP添加默认端口？(y/n, 默认n): ").strip().lower()
-        if port_choice == 'y':
-            default_port = input("请输入默认端口(直接回车使用443): ").strip()
-            if not default_port or not default_port.isdigit():
-                default_port = "443"
-    
-    # 处理不同类型文件
-    if file_ext in ['.xlsx', '.xls']:
-        print("说明：自动检测IP列，智能处理IP和端口")
-        dfs_dict = process_excel_file(file_path)
-        if not dfs_dict:
-            return
-        
-        all_results = []
-        for sheet_name, df in dfs_dict.items():
-            print(f"\n📊 处理工作表: {sheet_name}")
-            results = process_dataframe_for_quick_mode(df, extract_mode, default_port)
-            if results:
-                # 添加工作表分隔符
-                all_results.append(f"----- {sheet_name} -----")
-                all_results.extend(results)
-        
-        results = all_results
-        
-    elif file_ext in ['.txt']:
-        if extract_mode == "ip_only":
-            print("说明：从文本文件中只提取IP地址，自动去重排序")
-            output_filename = "ip_results"
+    # 检测是否为特殊格式文件
+    if is_special_format_file(file_path):
+        if is_drag_drop:
+            # 拖拽模式直接使用 IP:端口#备注 格式
+            results = extract_special_format(file_path)
+            output_filename = "ip_port_remark_results"
+            print("🔍 检测到特殊格式文件，使用 IP:端口#备注 格式输出")
         else:
-            print("说明：从文本文件中提取IP:端口格式（支持多种分隔符）")
-            print("💡 支持格式: IP:端口, IP,端口, 及其他混合格式")
+            # 交互模式让用户选择
+            print("🔍 检测到特殊格式文件，请选择输出格式:")
+            print("1. IP:端口#备注 格式")
+            print("2. IP 空格 端口 格式")
+            print("3. 仅IP模式")
             
-        results = extract_from_text_advanced(file_path, extract_mode, default_port)
+            choice = input("请选择(1/2/3, 默认1): ").strip()
+            if choice == "2":
+                special_results = extract_special_format(file_path)
+                results = []
+                for item in special_results:
+                    match = re.match(r'([^:]+):(\d+)(#.*)?', item)
+                    if match:
+                        results.append(f"{match.group(1)} {match.group(2)}")
+                extract_mode = "ip_space_port"
+                output_filename = "ip_port_results"
+            elif choice == "3":
+                special_results = extract_special_format(file_path)
+                results = []
+                for item in special_results:
+                    match = re.match(r'([^:]+):(\d+)(#.*)?', item)
+                    if match:
+                        results.append(match.group(1))
+                extract_mode = "ip_only"
+                output_filename = "ip_results"
+            else:
+                results = extract_special_format(file_path)
+                extract_mode = "ip_port_remark"
+                output_filename = "ip_port_remark_results"
+    else:
+        file_ext = os.path.splitext(file_path)[1].lower()
+        output_filename = "results"
         
-    else:  # CSV和其他格式
-        print("说明：自动检测IP列，智能处理IP和端口")
-        df = process_csv_file(file_path)
-        if df is None:
-            return
-        results = process_dataframe_for_quick_mode(df, extract_mode, default_port)
+        # 设置默认端口 - 只有需要端口的模式才询问
+        default_port = ""
+        if extract_mode in ["ip_space_port", "ip_port_remark"]:
+            if not is_drag_drop:
+                print("💡 说明: 如果数据中只有IP没有端口，可以为其添加默认端口")
+                port_choice = input("🔧 是否为纯IP添加默认端口？(y/n, 默认n): ").strip().lower()
+                if port_choice == 'y':
+                    default_port = input("请输入默认端口(直接回车使用443): ").strip()
+                    if not default_port or not default_port.isdigit():
+                        default_port = "443"
+                    print(f"✅ 将使用默认端口: {default_port}")
+                else:
+                    print("✅ 不添加默认端口，仅提取包含端口的数据")
+            else:
+                # 拖拽模式不添加默认端口
+                default_port = ""
+                print("✅ 拖拽模式：不添加默认端口，仅提取包含端口的数据")
+        else:
+            # 仅IP模式不需要端口
+            print("✅ 仅IP模式：提取所有IP地址，不关心端口")
+        
+        # 处理不同类型文件
+        if file_ext in ['.xlsx', '.xls']:
+            print("说明：自动检测IP列，智能处理IP和端口")
+            dfs_dict = process_excel_file(file_path)
+            if not dfs_dict:
+                return
+            
+            all_results = []
+            for sheet_name, df in dfs_dict.items():
+                print(f"\n📊 处理工作表: {sheet_name}")
+                sheet_results = process_dataframe_for_quick_mode(df, extract_mode, default_port)
+                if sheet_results:
+                    all_results.append(f"----- {sheet_name} -----")
+                    all_results.extend(sheet_results)
+            
+            results = all_results
+            
+        elif file_ext in ['.txt']:
+            if extract_mode == "ip_only":
+                print("说明：从文本文件中只提取IP地址，自动去重排序")
+                output_filename = "ip_results"
+            elif extract_mode == "ip_port_remark":
+                print("说明：从文本文件中提取 IP:端口#备注 格式")
+                output_filename = "ip_port_remark_results"
+            else:
+                print("说明：从文本文件中提取 IP 空格 端口 格式")
+                output_filename = "ip_port_results"
+                
+            results = extract_from_text_advanced(file_path, extract_mode, default_port)
+            
+        else:  # CSV和其他格式
+            print("说明：自动检测IP列，智能处理IP和端口")
+            df = process_csv_file(file_path)
+            if df is None:
+                return
+            results = process_dataframe_for_quick_mode(df, extract_mode, default_port)
     
     if not results or (len(results) == 1 and results[0].startswith('-----')):
         print("❌ 未提取到任何有效数据")
+        if is_drag_drop:
+            input("\n⏹️  按回车键退出...")
         return
     
     if not is_drag_drop:
@@ -444,7 +604,6 @@ def quick_mode(file_path, extract_mode="ip_port", is_drag_drop=False):
             for line in results:
                 f.write(line + '\n')
         
-        # 统计有效数据行数（排除分隔符）
         valid_count = len([line for line in results if not line.startswith('-----')])
         print(f"✅ 处理完成！共生成 {valid_count} 条去重记录")
         print(f"💾 输出文件: {output_path}")
@@ -460,6 +619,9 @@ def quick_mode(file_path, extract_mode="ip_port", is_drag_drop=False):
             
     except Exception as e:
         print(f"❌ 保存文件失败: {e}")
+    
+    if is_drag_drop:
+        input("\n⏹️  按回车键退出...")
 
 def truncate_format(format_template, max_columns):
     """根据最大列数截断格式"""
@@ -697,71 +859,214 @@ def custom_mode():
     except Exception as e:
         print(f"❌ 保存文件失败: {e}")
 
+def show_usage():
+    """显示使用说明"""
+    program_name = os.path.basename(sys.argv[0])
+    print(f"""
+🚀 IP处理工具 v2.2
+
+使用方法:
+  交互模式: {program_name}
+  拖拽模式: 直接将文件拖拽到程序上
+  命令行模式: {program_name} [参数]
+
+命令行参数:
+  -u, --usage         显示此使用说明
+  -f, --file string   输入文件路径
+  -m, --mode string   输出模式: ipportremark(IP:端口#备注), ipspace(IP 空格 端口), iponly(仅IP)
+                      默认: ipspace
+  -o, --out string    输出文件名 (默认: "results.txt")
+  -p, --port int      默认端口号 (默认: 443)
+
+示例:
+  {program_name} -f data.txt -m ipportremark -o output.txt
+  {program_name} -f data.xlsx -m ipspace -p 8080
+
+支持的文件格式:
+  • 文本文件: .txt
+  • Excel文件: .xlsx, .xls  
+  • CSV文件: .csv
+
+输出格式示例:
+  • IP:端口#备注: 192.168.1.1:443#CN
+  • IP 空格 端口: 192.168.1.1 443
+  • 仅IP: 192.168.1.1
+    """)
+
+def command_line_mode():
+    """命令行模式"""
+    program_name = os.path.basename(sys.argv[0])
+    parser = argparse.ArgumentParser(description=f'{program_name} - IP处理工具', add_help=False)
+    parser.add_argument('-u', '--usage', action='store_true', help='显示使用说明')
+    parser.add_argument('-f', '--file', type=str, help='输入文件路径')
+    parser.add_argument('-m', '--mode', type=str, choices=['ipportremark', 'ipspace', 'iponly'], 
+                       default='ipspace', help='输出模式 (默认: ipspace)')
+    parser.add_argument('-o', '--out', type=str, default='results.txt', help='输出文件名')
+    parser.add_argument('-p', '--port', type=int, default=443, help='默认端口号')
+    
+    args = parser.parse_args()
+    
+    if args.usage or not args.file:
+        show_usage()
+        return
+    
+    if not os.path.exists(args.file):
+        print(f"❌ 文件不存在: {args.file}")
+        return
+    
+    # 映射模式参数
+    mode_map = {
+        'ipportremark': 'ip_port_remark',
+        'ipspace': 'ip_space_port',
+        'iponly': 'ip_only'
+    }
+    
+    extract_mode = mode_map[args.mode]
+    
+    print(f"🔧 命令行模式:")
+    print(f"   输入文件: {args.file}")
+    print(f"   输出模式: {args.mode}")
+    print(f"   输出文件: {args.out}")
+    print(f"   默认端口: {args.port}")
+    
+    # 检测是否为特殊格式文件
+    if is_special_format_file(args.file):
+        if args.mode == 'ipportremark':
+            results = extract_special_format(args.file)
+        elif args.mode == 'ipspace':
+            special_results = extract_special_format(args.file)
+            results = []
+            for item in special_results:
+                match = re.match(r'([^:]+):(\d+)(#.*)?', item)
+                if match:
+                    results.append(f"{match.group(1)} {match.group(2)}")
+        elif args.mode == 'iponly':
+            special_results = extract_special_format(args.file)
+            results = []
+            for item in special_results:
+                match = re.match(r'([^:]+):(\d+)(#.*)?', item)
+                if match:
+                    results.append(match.group(1))
+    else:
+        # 普通文件处理
+        file_ext = os.path.splitext(args.file)[1].lower()
+        
+        if file_ext in ['.xlsx', '.xls']:
+            dfs_dict = process_excel_file(args.file, selected_sheets=None)
+            if not dfs_dict:
+                return
+            results = []
+            for sheet_name, df in dfs_dict.items():
+                sheet_results = process_dataframe_for_quick_mode(df, extract_mode, str(args.port))
+                if sheet_results:
+                    results.extend(sheet_results)
+        elif file_ext in ['.txt']:
+            results = extract_from_text_advanced(args.file, extract_mode, str(args.port))
+        else:
+            df = process_csv_file(args.file)
+            if df is None:
+                return
+            results = process_dataframe_for_quick_mode(df, extract_mode, str(args.port))
+    
+    if not results:
+        print("❌ 未提取到任何有效数据")
+        return
+    
+    # 保存结果
+    output_path = get_safe_output_path(args.out)
+    try:
+        with open(output_path, 'w', encoding='utf-8') as f:
+            for line in results:
+                f.write(line + '\n')
+        
+        valid_count = len([line for line in results if not line.startswith('-----')])
+        print(f"✅ 处理完成！共生成 {valid_count} 条去重记录")
+        print(f"💾 输出文件: {output_path}")
+        
+    except Exception as e:
+        print(f"❌ 保存文件失败: {e}")
+
 def main():
     """主函数"""
-    print("=" * 50)
-    print("          🚀 IP-PORT-TOOL v2.1")
-    print("=" * 50)
-    print("📋 功能说明:")
-    print("  • 快速模式: 拖拽文件自动处理（支持多工作表）")
-    print("  • 自定义模式: 支持CSV/TXT/Excel，自由选择列")
-    print("  • 智能解析: 自动识别文本文件结构")
-    print("  • 支持去重、排序、多种输出格式")
-    print("=" * 50)
-    
-    if len(sys.argv) > 1:
-        # 拖拽文件启动
-        file_path = sys.argv[1]
-        if os.path.exists(file_path):
-            print(f"🔗 检测到拖拽文件: {file_path}")
-            file_ext = os.path.splitext(file_path)[1].lower()
-            
-            if file_ext in ['.txt']:
-                print("\n📝 请选择提取模式:")
-                print("1. 提取IP和端口 (IP:Port格式)")
-                print("2. 仅提取IP地址")
-                mode_choice = input("请选择(1/2, 默认1): ").strip()
-                if mode_choice == "2":
-                    quick_mode(file_path, "ip_only", is_drag_drop=True)
+    try:
+        # 检查命令行参数
+        if len(sys.argv) > 1 and sys.argv[1] not in ['-u', '--usage', '-f', '--file', '-m', '--mode', '-o', '--out', '-p', '--port']:
+            # 拖拽文件启动
+            file_path = sys.argv[1]
+            if os.path.exists(file_path):
+                print("=" * 50)
+                print("          🚀 IP处理工具 v2.2")
+                print("=" * 50)
+                print(f"📁 检测到拖拽文件: {file_path}")
+                
+                if is_special_format_file(file_path):
+                    # 特殊格式文件，使用 IP:端口#备注 格式
+                    quick_mode(file_path, "ip_port_remark", is_drag_drop=True)
                 else:
-                    quick_mode(file_path, "ip_port", is_drag_drop=True)
+                    # 普通文件，使用IP空格端口格式
+                    quick_mode(file_path, "ip_space_port", is_drag_drop=True)
             else:
-                quick_mode(file_path, "ip_port", is_drag_drop=True)
-        else:
-            print("❌ 文件不存在！")
-    else:
-        # 双击启动
+                print("❌ 文件不存在！")
+                input("\n⏹️  按回车键退出...")
+            return
+        
+        # 检查命令行模式
+        if len(sys.argv) > 1:
+            command_line_mode()
+            return
+        
+        print("=" * 50)
+        print("          🚀 IP处理工具 v2.2")
+        print("=" * 50)
+        print("📋 功能说明:")
+        print("  • 快速模式: 拖拽文件自动处理")
+        print("  • 自定义模式: 支持CSV/TXT/Excel，自由选择列")
+        print("  • 智能解析: 自动识别文本文件结构")
+        print("  • 支持去重、排序、多种输出格式")
+        print("=" * 50)
+        
         print("🎯 请选择模式:")
         print("1. 快速模式 (拖拽文件到本程序即可使用)")
         print("2. 自定义模式 (支持CSV/TXT/Excel文件)")
+        print("3. 显示使用说明")
         
-        choice = input("\n请选择模式(1/2): ").strip()
+        choice = input("\n请选择模式(1/2/3): ").strip()
         
         if choice == '1':
             file_path = input("📂 请输入文件路径: ").strip('"')
             if os.path.exists(file_path):
-                file_ext = os.path.splitext(file_path)[1].lower()
-                
-                if file_ext in ['.txt']:
-                    print("\n📝 请选择提取模式:")
-                    print("1. 提取IP和端口 (IP:Port格式)")
-                    print("2. 仅提取IP地址")
-                    mode_choice = input("请选择(1/2, 默认1): ").strip()
-                    if mode_choice == "2":
+                if is_special_format_file(file_path):
+                    print("🔍 检测到特殊格式文件")
+                    quick_mode(file_path, "ip_port_remark", is_drag_drop=False)
+                else:
+                    print("\n📝 请选择输出格式:")
+                    print("1. IP:端口#备注 格式")
+                    print("2. IP 空格 端口 格式（默认）")
+                    print("3. 仅IP地址")
+                    mode_choice = input("请选择(1/2/3, 默认2): ").strip()
+                    if mode_choice == "1":
+                        quick_mode(file_path, "ip_port_remark", is_drag_drop=False)
+                    elif mode_choice == "3":
                         quick_mode(file_path, "ip_only", is_drag_drop=False)
                     else:
-                        quick_mode(file_path, "ip_port", is_drag_drop=False)
-                else:
-                    quick_mode(file_path, "ip_port", is_drag_drop=False)
+                        quick_mode(file_path, "ip_space_port", is_drag_drop=False)
             else:
                 print("❌ 文件不存在！")
         elif choice == '2':
+            # 调用自定义模式
             custom_mode()
+        elif choice == '3':
+            show_usage()
         else:
             print("❌ 无效选择！")
-    
-    print("\n" + "=" * 50)
-    input("⏹️  按回车键退出...")
+        
+        print("\n" + "=" * 50)
+        input("⏹️  按回车键退出...")
+        
+    except Exception as e:
+        print(f"❌ 程序运行出错: {e}")
+        print("💡 请检查文件路径和格式是否正确")
+        input("\n⏹️  按回车键退出...")
 
 if __name__ == "__main__":
     main()
