@@ -65,7 +65,7 @@ python ip_tool.py
 python -m pip install pyinstaller
 
 # 打包为单文件 EXE
-python -m pyinstaller --onefile --name "IP-PORT-TOOL" "ip_tool.py"
+python -m PyInstaller --onefile --console --name "IP-PORT-tool" "ip-port-tool.py"
 ```
 
 ## 🎮 使用指南
@@ -290,4 +290,5 @@ ip-port-tool/
 ---
 
 ⭐ 如果这个项目对你有帮助，欢迎 Star 支持！
+
 
