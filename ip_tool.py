@@ -519,7 +519,7 @@ def custom_mode():
 def main():
     """主函数"""
     print("=" * 50)
-    print("          🚀 IP-PORT-TOOL v2.0")
+    print("        🚀 IP-PORT-TOOL v2.0")
     print("=" * 50)
     print("📋 功能说明:")
     print("  • 快速模式: 拖拽文件自动处理")
@@ -584,3 +584,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
